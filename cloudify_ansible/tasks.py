@@ -277,3 +277,30 @@ def precreate(ctx=None, **_):
         ctx.logger.error('Ansible will need to be installed. '
                          'This may cause problems if Ansible is installed in '
                          'a relationship operation.')
+
+
+@operation
+def install(ctx=None, **_):
+    install_config = ctx.node.properties
+    utils.create_playbook_venv(
+        ctx,
+        packages_to_install=install_config.get('packages_to_install'),
+        collections_to_install=install_config.get('collections_to_install')
+    )
+
+
+@operation
+def uninstall(ctx=None, **_):
+    if ctx.node.properties.get('ansible_external_pyenv'):
+        ctx.logger.info("Not deleting external pyenv")
+        return
+    if ctx.node.properties.get('ansible_external_executable_path'):
+        ctx.logger.info("Not deleting external executable path")
+        return
+    utils.delete_playbook_environment(ctx)
+
+
+@operation
+def set_pyenv(playbook_venv, ctx, **_):
+    utils.get_instance(ctx).runtime_properties[constants.PLAYBOOK_VENV]\
+        = playbook_venv

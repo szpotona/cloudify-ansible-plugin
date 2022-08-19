@@ -328,6 +328,11 @@ def create_playbook_workspace(ctx=None):
         mkdtemp(dir=get_node_instance_dir())
 
 
+def delete_temp_folder(directory):
+    if directory and os.path.exists(directory):
+        shutil.rmtree(directory)
+
+
 def delete_playbook_workspace(ctx):
     """Delete the temporary folder.
 
@@ -336,8 +341,18 @@ def delete_playbook_workspace(ctx):
     """
 
     directory = get_instance(ctx).runtime_properties.get(WORKSPACE)
-    if directory and os.path.exists(directory):
-        shutil.rmtree(directory)
+    delete_temp_folder(directory)
+
+
+def delete_playbook_environment(ctx):
+    """Delete the temporary folder.
+
+    :param ctx: The Cloudify context.
+    :return:
+    """
+
+    directory = get_instance(ctx).runtime_properties.get(PLAYBOOK_VENV)
+    delete_temp_folder(directory)
 
 
 def get_source_config_from_ctx(_ctx,
@@ -624,6 +639,36 @@ def get_executable_path(executable, venv):
     return '{0}/bin/{1}'.format(venv, executable) if venv else executable
 
 
+def install_new_pyenv_condition(_ctx):
+    if get_instance(_ctx).runtime_properties.get(PLAYBOOK_VENV):
+        _ctx.logger.info(
+            "Using installed pyenv: {}"
+            .format(
+                get_instance(_ctx).runtime_properties.get(PLAYBOOK_VENV)
+            )
+        )
+        return False
+    if _ctx.node.properties.get('ansible_external_pyenv'):
+        get_instance(_ctx).runtime_properties[PLAYBOOK_VENV] = \
+            _ctx.node.properties.get('ansible_external_pyenv')
+        _ctx.logger.info(
+            "Using installed pyenv: {}"
+            .format(
+                _ctx.node.properties.get('ansible_external_pyenv')
+            )
+        )
+        return False
+    if _ctx.node.properties.get('ansible_external_executable_path'):
+        _ctx.logger.info(
+            "Using installed executable path: {}"
+            .format(
+                _ctx.node.properties.get('ansible_external_executable_path')
+            )
+        )
+        return False
+    return True
+
+
 def create_playbook_venv(_ctx,
                          packages_to_install=None,
                          collections_to_install=None):
@@ -637,11 +682,16 @@ def create_playbook_venv(_ctx,
         inside venv.
        """
     if is_connected_to_internet():
-        if not get_instance(_ctx).runtime_properties.get(PLAYBOOK_VENV):
+        if install_new_pyenv_condition(_ctx):
             deployment_dir = get_deployment_dir(_ctx.deployment.id)
             venv_path = mkdtemp(dir=deployment_dir)
             make_virtualenv(path=venv_path)
-            install_packages_to_venv(venv_path, [ANSIBLE_TO_INSTALL])
+            ansible_to_install = [ANSIBLE_TO_INSTALL]
+            if _ctx.node.properties.get('installation_source'):
+                ansible_to_install = [
+                    _ctx.node.properties['installation_source']
+                ]
+            install_packages_to_venv(venv_path, ansible_to_install)
             get_instance(_ctx).runtime_properties[PLAYBOOK_VENV] = venv_path
             install_packages_to_venv(venv_path, packages_to_install)
             install_collections_to_venv(venv_path, collections_to_install)
