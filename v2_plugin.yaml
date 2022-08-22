@@ -283,7 +283,7 @@ node_types:
       cloudify.interfaces.lifecycle:
         configure:
           implementation: ansible.cloudify_ansible.tasks.configure
-        configure:
+        start:
           implementation: ansible.cloudify_ansible.tasks.set_playbook_config
           inputs:
             <<: *playbook_inputs
