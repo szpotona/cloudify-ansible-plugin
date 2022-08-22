@@ -270,7 +270,7 @@ def ansible_remove_host(new_sources_dict, _ctx, **_):
 
 @operation
 @prepare_ansible_node
-def precreate(ctx=None, **_):
+def configure(ctx=None, **_):
     ctx.logger.info('Checking Ansible installation.')
     if not utils.get_instance().runtime_properties.get(
             constants.PLAYBOOK_VENV):

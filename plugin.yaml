@@ -263,8 +263,8 @@ node_types:
       <<: *playbook_config
     interfaces:
       cloudify.interfaces.lifecycle:
-        precreate:
-          implementation: ansible.cloudify_ansible.tasks.precreate
+        configure:
+          implementation: ansible.cloudify_ansible.tasks.configure
         start:
           implementation: ansible.cloudify_ansible.tasks.run
           inputs:
@@ -283,8 +283,8 @@ node_types:
       <<: *playbook_config
     interfaces:
       cloudify.interfaces.lifecycle:
-        precreate:
-          implementation: ansible.cloudify_ansible.tasks.precreate
+        configure:
+          implementation: ansible.cloudify_ansible.tasks.configure
         configure:
           implementation: ansible.cloudify_ansible.tasks.set_playbook_config
           inputs:
