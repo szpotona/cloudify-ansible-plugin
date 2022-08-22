@@ -246,6 +246,7 @@ dsl_definitions:
        default: { get_property: [ SELF, store_facts ] }
 
 node_types:
+
   cloudify.nodes.ansible.Ansible:
     derived_from: cloudify.nodes.SoftwareComponent
     properties:
@@ -398,7 +399,6 @@ relationships:
         unlink:
           implementation: ansible.cloudify_ansible.tasks.cleanup
 
-  # not going to work due to installation happening on precreate
   cloudify.ansible.relationships.using_ansible_environment:
     derived_from: cloudify.relationships.connected_to
     source_interfaces:
