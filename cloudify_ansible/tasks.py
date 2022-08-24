@@ -99,6 +99,10 @@ def run(playbook_args, ansible_env_vars, _ctx, **kwargs):
         'REST_PORT': os.environ.get('REST_PORT'),
         'LOCAL_REST_CERT_FILE': os.environ.get('LOCAL_REST_CERT_FILE'),
         'CTX_NODE_INSTANCE_ID': _instance.id,
+        'ANSIBLE_CONFIG':
+            os.path.join(
+                utils.get_instance(_ctx).runtime_properties[constants.WORKSPACE],
+                'ansible.cfg')
     }
     os.environ['CTX_NODE_INSTANCE_ID'] = _instance.id
 
@@ -282,10 +286,15 @@ def configure(ctx=None, **_):
 @operation
 def install(ctx=None, **_):
     install_config = ctx.node.properties
-    utils.create_playbook_venv(
+    utils.create_playbook_venv(ctx)
+    utils.create_playbook_workspace(ctx)
+    utils.install_extra_packages(
         ctx,
-        packages_to_install=install_config.get('packages_to_install'),
-        collections_to_install=install_config.get('collections_to_install')
+        install_config.get('packages_to_install')
+    )
+    utils.install_galaxy_collections(
+        ctx,
+        install_config.get('collections_to_install')
     )
 
 
@@ -298,9 +307,19 @@ def uninstall(ctx=None, **_):
         ctx.logger.info("Not deleting external executable path")
         return
     utils.delete_playbook_environment(ctx)
+    utils.delete_playbook_workspace(ctx)
 
 
 @operation
 def set_pyenv(playbook_venv, ctx, **_):
     utils.get_instance(ctx).runtime_properties[constants.PLAYBOOK_VENV]\
         = playbook_venv
+
+
+@operation
+def update_venv(galaxy_collections, extra_packages, ctx=None, **_):
+    ctx.logger.info(
+        "Updating venv with extra_packages {} and collections {}"
+        .format(str(extra_packages), str(galaxy_collections)))
+    utils.install_galaxy_collections(galaxy_collections)
+    utils.install_extra_packages(extra_packages)

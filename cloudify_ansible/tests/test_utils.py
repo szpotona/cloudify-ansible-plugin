@@ -197,8 +197,9 @@ class UtilsTests(unittest.TestCase):
                     'test-deployment')):
                 with patch('cloudify_ansible.utils.runner.run'):
                     ctx = self._instance_ctx()
-                    utils.create_playbook_venv(_ctx=ctx,
-                                               packages_to_install=[])
+                    utils.create_playbook_venv(
+                        _ctx=ctx
+                    )
                 self.assertEqual(ctx.instance.runtime_properties.get(
                     PLAYBOOK_VENV), os.path.join(
                     '/opt',
@@ -223,8 +224,9 @@ class UtilsTests(unittest.TestCase):
                     ctx = self._instance_ctx()
                     ctx.instance.runtime_properties[PLAYBOOK_VENV] \
                         = '/opt/mgmtworker/some_shared_pyenv'
-                    utils.create_playbook_venv(_ctx=ctx,
-                                               packages_to_install=[])
+                    utils.create_playbook_venv(
+                        _ctx=ctx
+                    )
                 self.assertNotEqual(ctx.instance.runtime_properties.get(
                     PLAYBOOK_VENV), os.path.join(
                     '/opt',
@@ -251,8 +253,9 @@ class UtilsTests(unittest.TestCase):
                     ctx = self._instance_ctx()
                     ctx.node.properties['ansible_external_pyenv'] \
                         = '/opt/mgmtworker/some_shared_pyenv'
-                    utils.create_playbook_venv(_ctx=ctx,
-                                               packages_to_install=[])
+                    utils.create_playbook_venv(
+                        _ctx=ctx
+                    )
                 self.assertNotEqual(ctx.instance.runtime_properties.get(
                     PLAYBOOK_VENV), os.path.join(
                     '/opt',

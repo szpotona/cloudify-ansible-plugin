@@ -47,6 +47,10 @@ from cloudify_ansible.constants import (
     AVAILABLE_TAGS,
     ANSIBLE_TO_INSTALL,
     BP_INCLUDES_PATH,
+    INSTALLED_PACKAGES,
+    INSTALLED_COLLECTIONS,
+    COLLECTIONS_DIR,
+    LOCAL_VENV,
     PLAYBOOK_VENV,
     WORKSPACE,
     SOURCES,
@@ -68,6 +72,11 @@ try:
 except ImportError:
     NODE_INSTANCE = 'node-instance'
     RELATIONSHIP_INSTANCE = 'relationship-instance'
+
+try:
+    from pip._internal.operations import freeze
+except ImportError:  # pip < 10.0
+    from pip.operations import freeze
 
 
 def handle_key_data(_data, workspace_dir):
@@ -132,6 +141,14 @@ def _get_tenant_name(_ctx=None):
     if blueprint_from_rest['visibility'] == VisibilityState.GLOBAL:
         return blueprint_from_rest['tenant_name']
     return _ctx.tenant_name
+
+
+def _get_collections_location(_ctx=None):
+    _ctx = _ctx or ctx
+    runtime_properties = get_instance(ctx).runtime_properties
+    if not is_local_venv() and runtime_properties.get('galaxy_collections'):
+        return runtime_properties.get(WORKSPACE)
+    return runtime_properties.get(PLAYBOOK_VENV)
 
 
 def handle_file_path(file_path, additional_playbook_files, _ctx):
@@ -318,14 +335,23 @@ def handle_source_from_string(filepath, _ctx, new_inventory_path):
     return new_inventory_path
 
 
+def create_ansible_cfg(ctx):
+    workspace_dir = get_instance(ctx).runtime_properties.get(WORKSPACE)
+    collections_location = _get_collections_location(ctx)
+    ansible_cfg_file = os.path.join(workspace_dir, 'ansible.cfg')
+    with open(ansible_cfg_file, 'w') as f:
+        f.write("[defaults]\n")
+        f.write("collections_path={}\n".format(collections_location))
+
+
 def create_playbook_workspace(ctx=None):
     """ Create a temporary folder, so that we don't overwrite fields.
-
     :param ctx: The Cloudify context.
     :return:
     """
     get_instance(ctx).runtime_properties[WORKSPACE] = \
         mkdtemp(dir=get_node_instance_dir())
+    create_ansible_cfg(ctx)
 
 
 def delete_temp_folder(directory):
@@ -590,6 +616,10 @@ def make_virtualenv(path):
     ])
 
 
+def is_local_venv():
+    return get_instance(_ctx).runtime_properties.get(LOCAL_VENV)
+
+
 def install_packages_to_venv(venv, packages_list):
     # Force reinstall in playbook venv in order to make sure
     # they being installed on specified environment .
@@ -610,21 +640,41 @@ def install_packages_to_venv(venv, packages_list):
                                       " playbook`s venv. Error message: "
                                       "{err}".format(err=e))
 
+    ctx.instance.runtime_properties[INSTALLED_PACKAGES] = list(freeze.freeze())
 
-def install_collections_to_venv(venv, collections_list):
+
+def install_collections_to_venv(venv, collections_list, collections_dir):
     # Force reinstall in playbook venv in order to make sure
     # they being installed on specified environment .
     if collections_list:
         ctx.logger.debug("venv = {path}".format(path=venv))
         command = [get_executable_path('ansible-galaxy', venv=venv),
-                   'collection', 'install', '--force'] + collections_list
+                   'collection',
+                   'install',
+                   '--force',
+                   '-p',
+                   collections_dir] + collections_list
         ctx.logger.debug("cmd:{command}".format(command=command))
         ctx.logger.info("Installing {packages} on playbook`s venv.".format(
             packages=collections_list))
+        get_command = [get_executable_path('ansible-galaxy', venv=venv),
+                       'collection',
+                       'list',
+                       '-p',
+                       collections_dir]
         try:
             runner.run(command=command,
                        cwd=venv,
                        execution_env={'LANG': 'en_US.UTF-8', 'PYTHONPATH': ''})
+            installed_collections = \
+                runner.run(command=get_command,
+                           cwd=venv,
+                           execution_env={
+                               'LANG': 'en_US.UTF-8',
+                               'PYTHONPATH': ''}
+                           )
+            get_instance(ctx).runtime_properties[INSTALLED_COLLECTIONS] = \
+                installed_collections
         except CommandExecutionException as e:
             raise NonRecoverableError("Can't install galaxy_collections on"
                                       " playbook`s venv. Error message: "
@@ -669,9 +719,8 @@ def install_new_pyenv_condition(_ctx):
     return True
 
 
-def create_playbook_venv(_ctx,
-                         packages_to_install=None,
-                         collections_to_install=None):
+def install_galaxy_collections(_ctx,
+                               collections_to_install=None):
     """
         Handle creation of virtual environments for running playbooks.
         The virtual environments will be created at the deployment directory.
@@ -681,8 +730,56 @@ def create_playbook_venv(_ctx,
        :param collections_to_install: list of galaxy collections to install
         inside venv.
        """
+
+    if is_connected_to_internet():
+        if collections_to_install:
+            collections_location = _get_collections_location(_ctx)
+            _ctx.logger.info("Installing collections {} to path {}".format(
+                str(collections_to_install),
+                collections_location))
+            install_collections_to_venv(venv_path,
+                                        collections_to_install,
+                                        collections_location)
+    else:
+        if collections_to_install:
+            raise NonRecoverableError('Do not use galaxy_collections when'
+                                      ' working on the plugin virtualenv.')
+
+
+def install_extra_packages(_ctx,
+                           packages_to_install=None):
+    """
+        Handle creation of virtual environments for running playbooks.
+        The virtual environments will be created at the deployment directory.
+       :param _ctx: cloudify context.
+       :param packages_to_install: list of python packages to install
+        inside venv.
+       """
+
+    if is_connected_to_internet():
+        if packages_to_install and is_local_venv():
+            venv_path = \
+                get_instance(_ctx).runtime_properties.get(PLAYBOOK_VENV)
+            _ctx.logger.info("Installing extra_packages {} to path {}".format(
+                str(packages_to_install),
+                venv_path))
+            install_packages_to_venv(venv_path, packages_to_install)
+    else:
+        if packages_to_install:
+            raise NonRecoverableError('Do not use extra_packages when'
+                                      ' working on the plugin virtualenv.')
+
+
+def create_playbook_venv(_ctx):
+    """
+        Handle creation of virtual environments for running playbooks.
+        The virtual environments will be created at the deployment directory.
+       :param _ctx: cloudify context.
+       """
+
     if is_connected_to_internet():
         if install_new_pyenv_condition(_ctx):
+            _ctx.logger.info("Installing new python venv")
             deployment_dir = get_deployment_dir(_ctx.deployment.id)
             venv_path = mkdtemp(dir=deployment_dir)
             make_virtualenv(path=venv_path)
@@ -693,13 +790,10 @@ def create_playbook_venv(_ctx,
                 ]
             install_packages_to_venv(venv_path, ansible_to_install)
             get_instance(_ctx).runtime_properties[PLAYBOOK_VENV] = venv_path
-            install_packages_to_venv(venv_path, packages_to_install)
-            install_collections_to_venv(venv_path, collections_to_install)
+            get_instance(_ctx).runtime_properties[LOCAL_VENV] = True
+
     else:
         get_instance(_ctx).runtime_properties[PLAYBOOK_VENV] = ''
-        if packages_to_install or collections_to_install:
-            raise NonRecoverableError('Do not use extra_packages when'
-                                      ' working on the plugin virtualenv.')
 
 
 def is_connected_to_internet():
